@@ -19,6 +19,14 @@ defaults:
   debug: False
   video_pred_log: True
 
+  # Logging
+  wandb_project: dynamics_decomposition
+  wandb_entity: pair-diffusion
+  wandb_silent: false
+  disable_wandb: false
+  save_csv: false
+  run_descriptor: ''
+
   # Environment
   task: 'dmc_walker_walk'
   size: [64, 64]

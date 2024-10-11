@@ -7,7 +7,7 @@ import sys
 os.environ["MUJOCO_GL"] = "osmesa"
 
 import numpy as np
-import ruamel.yaml as yaml
+from ruamel.yaml import YAML
 
 sys.path.append(str(pathlib.Path(__file__).parent))
 
@@ -221,7 +221,7 @@ def main(config):
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
     # step in logger is environmental step
-    logger = tools.Logger(logdir, config.action_repeat * step)
+    logger = tools.Logger(logdir, config.action_repeat * step, config)
 
     print("Create envs.")
     if config.offline_traindir:
@@ -343,7 +343,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
-    configs = yaml.safe_load(
+    yaml = YAML()
+    configs = yaml.load(
         (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
     )
 
