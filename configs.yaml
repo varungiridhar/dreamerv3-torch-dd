@@ -18,7 +18,8 @@ defaults:
   precision: 32
   debug: False
   video_pred_log: True
-
+  load_latest_checkpoint: False
+  
   # Logging
   wandb_project: dynamics_decomposition
   wandb_entity: pair-diffusion
