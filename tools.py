@@ -67,18 +67,18 @@ class Logger:
         self.step = step
         self.config = config
 
-        if not config.disable_wandb:
-            # Initialize wandb
-            wandb.init(
-                project=config.wandb_project,
-                entity=config.wandb_entity,
-                name=config.run_descriptor,
-                # group=self._group,
-                # tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
-                # dir=self._log_dir,
-                # config=OmegaConf.to_container(cfg, resolve=True),
-            )
-            wandb.config.update({"step": step})
+        # Initialize wandb
+        wandb.init(
+			project=config.wandb_project,
+			entity=config.wandb_entity,
+			name=config.run_descriptor,
+			group=config.group,
+            tags=config.tags,
+			# tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
+			# dir=self._log_dir,
+			# config=OmegaConf.to_container(cfg, resolve=True),
+		)
+        wandb.config.update({"step": step})
 
     def scalar(self, name, value):
         self._scalars[name] = float(value)

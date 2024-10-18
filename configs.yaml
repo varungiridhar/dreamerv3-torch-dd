@@ -24,6 +24,8 @@ defaults:
   wandb_project: dynamics_decomposition
   wandb_entity: pair-diffusion
   wandb_silent: false
+  wandb_group: ''
+  wandb_tags: []
   disable_wandb: false
   save_csv: false
   run_descriptor: ''
