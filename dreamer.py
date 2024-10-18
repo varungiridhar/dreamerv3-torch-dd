@@ -3,6 +3,7 @@ import functools
 import os
 import pathlib
 import sys
+import time
 
 os.environ["MUJOCO_GL"] = "osmesa"
 
@@ -292,7 +293,7 @@ def main(config):
         train_dataset,
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
-    if (logdir / "latest.pt").exists():
+    if (logdir / "latest.pt").exists() and config.load_latest_checkpoint:
         checkpoint = torch.load(logdir / "latest.pt")
         agent.load_state_dict(checkpoint["agent_state_dict"])
         tools.recursively_load_optim_state_dict(agent, checkpoint["optims_state_dict"])
