@@ -77,7 +77,7 @@ class WorldModel(nn.Module):
             config.num_actions,
             self.embed_size,
             config.device,
-            group_separate['walker']['ED2'],
+            group_separate[config.task_prefix][config.dyn_decomp_mode],
         )
         self.heads = nn.ModuleDict()
         if config.dyn_discrete:

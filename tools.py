@@ -72,9 +72,8 @@ class Logger:
 			project=config.wandb_project,
 			entity=config.wandb_entity,
 			name=config.run_descriptor,
-			group=config.group,
-            tags=config.tags,
-			# tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
+			group=config.wandb_group,
+			tags=[f"seed:{config.dyn_decomp_mode}"] + [f"dyn_decomp_mode:{config.dyn_decomp_mode}"],
 			# dir=self._log_dir,
 			# config=OmegaConf.to_container(cfg, resolve=True),
 		)

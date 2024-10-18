@@ -32,6 +32,7 @@ defaults:
 
   # Environment
   task: 'dmc_walker_walk'
+  task_prefix: 'walker'
   size: [64, 64]
   envs: 1
   action_repeat: 2
@@ -49,6 +50,7 @@ defaults:
   dyn_mean_act: 'none'
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
+  dyn_decomp_mode: 'ED2'
   grad_heads: ['decoder', 'reward', 'cont']
   units: 512
   act: 'SiLU'
