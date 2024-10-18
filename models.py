@@ -8,6 +8,32 @@ import tools
 to_np = lambda x: x.detach().cpu().numpy()
 
 
+group_separate = {
+  'hopper': {
+    'ED2': [[0, 1], [2], [3]],
+  },
+
+  'finger': {
+    'ED2': [[0], [1]],
+  },
+
+  'cheetah': {
+    'ED2': [[2], [5], [3, 4], [0, 1]],
+  },
+
+  'walker': {
+    'ED2': [[0, 1, 3, 4], [2], [5]],
+  },
+
+  'reacher': {
+    'ED2': [[0], [1]],
+    },
+
+  'humanoid': {
+    'ED2': [[7], [13], [2, 3, 9], [0, 5, 11], [6, 8], [12, 14], [18, 15, 17, 20, 16, 1, 19], [4, 10]],
+  },
+}
+
 class RewardEMA:
     """running mean and std"""
 
@@ -35,7 +61,7 @@ class WorldModel(nn.Module):
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
         self.encoder = networks.MultiEncoder(shapes, **config.encoder)
         self.embed_size = self.encoder.outdim
-        self.dynamics = networks.RSSM(
+        self.dynamics = networks.RSSM_action_separate_with_group(
             config.dyn_stoch,
             config.dyn_deter,
             config.dyn_hidden,
@@ -51,6 +77,7 @@ class WorldModel(nn.Module):
             config.num_actions,
             self.embed_size,
             config.device,
+            group_separate['walker']['ED2'],
         )
         self.heads = nn.ModuleDict()
         if config.dyn_discrete:

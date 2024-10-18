@@ -309,7 +309,7 @@ class RSSM_action_separate_with_group(nn.Module):
         device=None,
         action_group=None,
     ):
-        super(RSSM, self).__init__()
+        super(RSSM_action_separate_with_group, self).__init__()
         self._stoch = stoch
         self._deter = deter
         self._hidden = hidden
@@ -332,19 +332,24 @@ class RSSM_action_separate_with_group(nn.Module):
         print("the environment and task is set in {} action groups".format(self.action_group_num)) # move to better location
         self.tile_target = (1, self.action_group_num, 1)
 
-        inp_layers = []
-        if self._discrete:
-            inp_dim = self._stoch * self._discrete + num_actions
-        else:
-            inp_dim = self._stoch + num_actions
-        inp_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
-        if norm:
-            inp_layers.append(nn.LayerNorm(self._hidden, eps=1e-03))
-        inp_layers.append(act())
-        self._img_in_layers = nn.Sequential(*inp_layers)
-        self._img_in_layers.apply(tools.weight_init)
-        self._cell = GRUCell(self._hidden, self._deter, norm=norm)
-        self._cell.apply(tools.weight_init)
+        # create MLP and GRU for every self.action_group_num
+        self._img_in_layers = nn.ModuleList()
+        self._cell = nn.ModuleList()
+        for i in range(self.action_group_num):
+            num_actions_grp = len(self._action_group[i])
+            if self._discrete:
+                inp_dim = self._stoch * self._discrete + num_actions_grp
+            else:
+                inp_dim = self._stoch + num_actions_grp
+            inp_layers = []
+            inp_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
+            if norm:
+                inp_layers.append(nn.LayerNorm(self._hidden, eps=1e-03))
+            inp_layers.append(act())
+            self._img_in_layers.append(nn.Sequential(*inp_layers))
+            self._img_in_layers[i].apply(tools.weight_init)
+            self._cell.append(GRUCell(self._hidden, self._deter, norm=norm))
+            self._cell[i].apply(tools.weight_init)
 
         img_out_layers = []
         inp_dim = self._deter
@@ -493,46 +498,39 @@ class RSSM_action_separate_with_group(nn.Module):
         return post, prior
 
     def img_step(self, prev_state, prev_action, sample=True):
-        # (batch, stoch, discrete_num)
+         # (batch, stoch, discrete_num)
         prev_stoch = prev_state["stoch"]
         if self._discrete:
             shape = list(prev_stoch.shape[:-2]) + [self._stoch * self._discrete]
             # (batch, stoch, discrete_num) -> (batch, stoch * discrete_num)
             prev_stoch = prev_stoch.reshape(shape)
-        # (batch, stoch * discrete_num) -> (batch, stoch * discrete_num + action)
-        x = torch.cat([prev_stoch, prev_action], -1)
+
+        x = torch.unsqueeze(prev_stoch, -2)
         
         # formatting data according to ED2
         action_split = torch.split(prev_action, 1, dim=-1)
-        x = x.repeat(self.tile_target)
+        x = torch.tile(x, self.tile_target)
         x_a_b_s = x.permute(1, 0, 2)
 
-        # (batch, stoch * discrete_num + action, embed) -> (batch, hidden)
-        # x = self._img_in_layers(x)
         sum_x = []
         sum_deter = []
         for i in range(self.action_group_num):
-            ed2_action_group = self.action_group[i]
-            action_tensor = torch.cat([self.action_split[_] for _ in ed2_action_group], -1)
-            s_a_pair = torch.cat([prev_state["deter"], action_tensor], -1)
-            tmp = self._img_in_layers(s_a_pair)
+            ed2_action_group = self._action_group[i]
+            action_tensor = torch.cat([action_split[_] for _ in ed2_action_group], -1)
+            s_a_pair = torch.cat([x_a_b_s[i], action_tensor], -1)
+            tmp = self._img_in_layers[i](s_a_pair)
             # tmp, deter_tmp = self._cell(tmp, [prev_state['deter']])
             for _ in range(self._rec_depth):  # rec depth is not correctly implemented
                 deter_tmp = prev_state["deter"]
                 # (batch, hidden), (batch, deter) -> (batch, deter), (batch, deter)
-                tmp, deter_tmp = self._cell(tmp, [deter])
+                tmp, deter_tmp = self._cell[i](tmp, [deter_tmp])
                 deter_tmp = deter_tmp[0]  # Keras wraps the state in a list.
             sum_x.append(tmp)
-            sum_deter.append(deter_tmp[0])
+            sum_deter.append(deter_tmp)
         # reduce to mean
         x = torch.mean(torch.stack(sum_x, 0), 0)
         deter = torch.mean(torch.stack(sum_deter, 0), 0)
 
-        # for _ in range(self._rec_depth):  # rec depth is not correctly implemented
-        #     deter = prev_state["deter"]
-        #     # (batch, hidden), (batch, deter) -> (batch, deter), (batch, deter)
-        #     x, deter = self._cell(x, [deter])
-        #     deter = deter[0]  # Keras wraps the state in a list.
         # (batch, deter) -> (batch, hidden)
         x = self._img_out_layers(x)
         # (batch, hidden) -> (batch_size, stoch, discrete_num)
