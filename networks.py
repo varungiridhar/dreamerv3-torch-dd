@@ -322,7 +322,6 @@ class MultiEncoder(nn.Module):
         }
         print("Encoder CNN shapes:", self.cnn_shapes)
         print("Encoder MLP shapes:", self.mlp_shapes)
-
         self.outdim = 0
         if self.cnn_shapes:
             input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
@@ -332,7 +331,9 @@ class MultiEncoder(nn.Module):
             )
             self.outdim += self._cnn.outdim
         if self.mlp_shapes:
-            input_size = sum([sum(v) for v in self.mlp_shapes.values()])
+            # input_size = sum([sum(v) for v in self.mlp_shapes.values()])
+            input_size = self.mlp_shapes['obs'][0]  # This will be 37
+            print("input_size:", input_size)
             self._mlp = MLP(
                 input_size,
                 None,
@@ -347,12 +348,14 @@ class MultiEncoder(nn.Module):
 
     def forward(self, obs):
         outputs = []
-        if self.cnn_shapes:
-            inputs = torch.cat([obs[k] for k in self.cnn_shapes], -1)
-            outputs.append(self._cnn(inputs))
-        if self.mlp_shapes:
-            inputs = torch.cat([obs[k] for k in self.mlp_shapes], -1)
-            outputs.append(self._mlp(inputs))
+        # if self.cnn_shapes:
+        #     inputs = torch.cat([obs[k] for k in self.cnn_shapes], -1)
+        #     outputs.append(self._cnn(inputs))
+        # if self.mlp_shapes:
+        #     inputs = torch.cat([obs[k] for k in self.mlp_shapes], -1)
+        #     outputs.append(self._mlp(inputs))
+        inputs = obs["obs"]
+        outputs.append(self._mlp(inputs))
         outputs = torch.cat(outputs, -1)
         return outputs
 

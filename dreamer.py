@@ -3,11 +3,13 @@ import functools
 import os
 import pathlib
 import sys
+from omegaconf import DictConfig, OmegaConf, open_dict
+from types import SimpleNamespace
 
 os.environ["MUJOCO_GL"] = "osmesa"
 
 import numpy as np
-import ruamel.yaml as yaml
+from ruamel.yaml import YAML
 
 sys.path.append(str(pathlib.Path(__file__).parent))
 
@@ -21,14 +23,17 @@ import torch
 from torch import nn
 from torch import distributions as torchd
 
+import collections
+
 
 to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset):
+    def __init__(self, obs_space, act_space, config, config_env, logger, dataset):
         super(Dreamer, self).__init__()
         self._config = config
+        self._config_env = config_env
         self._logger = logger
         self._should_log = tools.Every(config.log_every)
         batch_steps = config.batch_size * config.batch_length
@@ -41,7 +46,7 @@ class Dreamer(nn.Module):
         self._step = logger.step // config.action_repeat
         self._update_count = 0
         self._dataset = dataset
-        self._wm = models.WorldModel(obs_space, act_space, self._step, config)
+        self._wm = models.WorldModel(obs_space, act_space, self._step, config, config_env)
         self._task_behavior = models.ImagBehavior(config, self._wm)
         if (
             config.compile and os.name != "nt"
@@ -75,7 +80,6 @@ class Dreamer(nn.Module):
                     openl = self._wm.video_pred(next(self._dataset))
                     self._logger.video("train_openl", to_np(openl))
                 self._logger.write(fps=True)
-
         policy_output, state = self._policy(obs, state, training)
 
         if training:
@@ -90,7 +94,8 @@ class Dreamer(nn.Module):
             latent, action = state
         obs = self._wm.preprocess(obs)
         embed = self._wm.encoder(obs)
-        latent, _ = self._wm.dynamics.obs_step(latent, action, embed, obs["is_first"])
+        is_first = torch.zeros(self._config_env.config.num_envs, dtype=torch.int32) # TODO: figure out a way to not manually code this in
+        latent, _ = self._wm.dynamics.obs_step(latent, action, embed, is_first)
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
         feat = self._wm.dynamics.get_feat(latent)
@@ -143,7 +148,7 @@ def make_dataset(episodes, config):
     return dataset
 
 
-def make_env(config, mode, id):
+def make_env(config, config_env, mode, id):
     suite, task = config.task.split("_", 1)
     if suite == "dmc":
         import envs.dmc as dmc
@@ -193,6 +198,14 @@ def make_env(config, mode, id):
 
         env = minecraft.make_env(task, size=config.size, break_speed=config.break_speed)
         env = wrappers.OneHotAction(env)
+    elif suite == "dflex":
+        import envs.dflex as dflex
+        print("Parsing config for dflex environment")
+        # pass in 
+        # output config
+        env = dflex.make_env(config, config_env) 
+        print("Successfully created dflex environment")
+        return env # TODO do we need to wrap the environment?
     else:
         raise NotImplementedError(suite)
     env = wrappers.TimeLimit(env, config.time_limit)
@@ -203,7 +216,7 @@ def make_env(config, mode, id):
     return env
 
 
-def main(config):
+def main(config, config_env):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
@@ -228,23 +241,28 @@ def main(config):
         directory = config.offline_traindir.format(**vars(config))
     else:
         directory = config.traindir
-    train_eps = tools.load_episodes(directory, limit=config.dataset_size)
+    # train_eps = tools.load_episodes(directory, limit=config.dataset_size)
+    train_eps = collections.OrderedDict() # TODO: process info from .pkl files
     if config.offline_evaldir:
         directory = config.offline_evaldir.format(**vars(config))
     else:
         directory = config.evaldir
-    eval_eps = tools.load_episodes(directory, limit=1)
-    make = lambda mode, id: make_env(config, mode, id)
-    train_envs = [make("train", i) for i in range(config.envs)]
-    eval_envs = [make("eval", i) for i in range(config.envs)]
-    if config.parallel:
-        train_envs = [Parallel(env, "process") for env in train_envs]
-        eval_envs = [Parallel(env, "process") for env in eval_envs]
-    else:
-        train_envs = [Damy(env) for env in train_envs]
-        eval_envs = [Damy(env) for env in eval_envs]
+    # eval_eps = tools.load_episodes(directory, limit=1)
+    eval_eps = collections.OrderedDict() # TODO: process info from .pkl files
+    make = lambda mode, id: make_env(config, config_env, mode, id)
+    # train_envs = [make("train", i) for i in range(config.envs)]
+    # eval_envs = [make("eval", i) for i in range(config.envs)]
+    train_envs = [make("train", 0)] # since dflex anyways parallelizes it
+    eval_envs = [make("eval", 0)] # since dflex anyways parallelizes it
+    # if config.parallel:
+    #     train_envs = [Parallel(env, "process") for env in train_envs]
+    #     eval_envs = [Parallel(env, "process") for env in eval_envs]
+    # else:
+    #     train_envs = [Damy(env) for env in train_envs]
+    #     eval_envs = [Damy(env) for env in eval_envs]
     acts = train_envs[0].action_space
-    print("Action Space", acts)
+    print("acts.shape", acts.shape)
+    print("config_env.config.num_envs", config_env.config.num_envs)
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
 
     state = None
@@ -253,13 +271,15 @@ def main(config):
         print(f"Prefill dataset ({prefill} steps).")
         if hasattr(acts, "discrete"):
             random_actor = tools.OneHotDist(
-                torch.zeros(config.num_actions).repeat(config.envs, 1)
+                # torch.zeros(config.num_actions).repeat(config.envs, 1)
+                torch.zeros(config.num_actions).repeat(config_env.config.num_envs, 1)
             )
         else:
+            print("Does not have attribute discrete")
             random_actor = torchd.independent.Independent(
                 torchd.uniform.Uniform(
-                    torch.tensor(acts.low).repeat(config.envs, 1),
-                    torch.tensor(acts.high).repeat(config.envs, 1),
+                    torch.tensor(acts.low).repeat(config_env.config.num_envs, 1),
+                    torch.tensor(acts.high).repeat(config_env.config.num_envs, 1),
                 ),
                 1,
             )
@@ -277,6 +297,7 @@ def main(config):
             logger,
             limit=config.dataset_size,
             steps=prefill,
+            num_envs=config_env.config.num_envs,
         )
         logger.step += prefill * config.action_repeat
         print(f"Logger: ({logger.step} steps).")
@@ -285,20 +306,24 @@ def main(config):
     train_dataset = make_dataset(train_eps, config)
     eval_dataset = make_dataset(eval_eps, config)
     agent = Dreamer(
-        train_envs[0].observation_space,
-        train_envs[0].action_space,
+        train_envs[0].num_obs, # train_envs[0].observation_space, 
+        train_envs[0].num_acts, # train_envs[0].action_space, 
         config,
+        config_env,
         logger,
         train_dataset,
     ).to(config.device)
+    print("Agent created.")
     agent.requires_grad_(requires_grad=False)
     if (logdir / "latest.pt").exists():
         checkpoint = torch.load(logdir / "latest.pt")
         agent.load_state_dict(checkpoint["agent_state_dict"])
         tools.recursively_load_optim_state_dict(agent, checkpoint["optims_state_dict"])
         agent._should_pretrain._once = False
-
+    print("Start training loop.")
     # make sure eval will be executed once after config.steps
+    print("Step", agent._step)
+    print("Config steps", config.steps)
     while agent._step < config.steps + config.eval_every:
         logger.write()
         if config.eval_episode_num > 0:
@@ -312,6 +337,7 @@ def main(config):
                 logger,
                 is_eval=True,
                 episodes=config.eval_episode_num,
+                num_envs=config_env.config.num_envs
             )
             if config.video_pred_log:
                 video_pred = agent._wm.video_pred(next(eval_dataset))
@@ -343,7 +369,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
-    configs = yaml.safe_load(
+    yaml = YAML()
+    configs = yaml.load(
         (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
     )
 
@@ -362,4 +389,11 @@ if __name__ == "__main__":
     for key, value in sorted(defaults.items(), key=lambda x: x[0]):
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
-    main(parser.parse_args(remaining))
+
+    # for dflex tasks
+    fp_env = os.path.join(os.getcwd(), 'envs', 'config', 'dflex_ant.yaml')
+    config_env = OmegaConf.load(fp_env)
+    if not isinstance(config_env, DictConfig):
+        config_env = OmegaConf.create(config_env)
+    
+    main(parser.parse_args(remaining), config_env)

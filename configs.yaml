@@ -93,10 +93,26 @@ defaults:
   disag_units: 400
   disag_action_cond: False
 
+# added for dflex (edit for different tasks)
+# TODO: uhh remove the below...
+dflex:
+  termination_height: 0.27
+  action_penalty: 0.0
+  joint_vel_obs_scaling: 0.1
+  up_rew_scale: 0.1
+  steps: 5e6
+  action_repeat: 2
+  train_ratio: 512
+  video_pred_log: false
+  encoder: {mlp_keys: '.*', cnn_keys: '$^'}
+  decoder: {mlp_keys: '.*', cnn_keys: '$^'}
+
+
 dmc_proprio:
   steps: 5e5
   action_repeat: 2
   envs: 4
+  dflex_envs: 128 # TODO: use envs/config/dflex_ant.yaml instead
   train_ratio: 512
   video_pred_log: false
   encoder: {mlp_keys: '.*', cnn_keys: '$^'}
