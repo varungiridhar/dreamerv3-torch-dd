@@ -234,7 +234,7 @@ def main(config, config_env):
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
     # step in logger is environmental step
-    logger = tools.Logger(logdir, config.action_repeat * step)
+    logger = tools.Logger(logdir, config.action_repeat * step, config)
 
     print("Create envs.")
     if config.offline_traindir:

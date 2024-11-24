@@ -7,6 +7,7 @@ import pathlib
 import re
 import time
 import random
+import wandb
 
 import numpy as np
 
@@ -55,7 +56,7 @@ class TimeRecording:
 
 
 class Logger:
-    def __init__(self, logdir, step):
+    def __init__(self, logdir, step, config):
         self._logdir = logdir
         self._writer = SummaryWriter(log_dir=str(logdir), max_queue=1000)
         self._last_step = None
@@ -64,6 +65,18 @@ class Logger:
         self._images = {}
         self._videos = {}
         self.step = step
+
+        # Initialize wandb
+        wandb.init(
+			project=config.wandb_project,
+			entity=config.wandb_entity,
+			name=config.run_descriptor,
+			# group=self._group,
+			# tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
+			# dir=self._log_dir,
+			# config=OmegaConf.to_container(cfg, resolve=True),
+		)
+        wandb.config.update({"step": step})
 
     def scalar(self, name, value):
         self._scalars[name] = float(value)
@@ -88,8 +101,10 @@ class Logger:
                 self._writer.add_scalar("scalars/" + name, value, step)
             else:
                 self._writer.add_scalar(name, value, step)
+                wandb.log({name: value}, step=step)
         for name, value in self._images.items():
             self._writer.add_image(name, value, step)
+            wandb.log({name: [wandb.Image(value)]}, step=step)
         for name, value in self._videos.items():
             name = name if isinstance(name, str) else name.decode("utf-8")
             if np.issubdtype(value.dtype, np.floating):
@@ -97,6 +112,7 @@ class Logger:
             B, T, H, W, C = value.shape
             value = value.transpose(1, 4, 2, 0, 3).reshape((1, T, C, H, B * W))
             self._writer.add_video(name, value, step, 16)
+            wandb.log({name: wandb.Video(value, fps=16, format="mp4")}, step=step)
 
         self._writer.flush()
         self._scalars = {}
@@ -116,6 +132,7 @@ class Logger:
 
     def offline_scalar(self, name, value, step):
         self._writer.add_scalar("scalars/" + name, value, step)
+        wandb.log({name: value}, step=step)
 
     def offline_video(self, name, value, step):
         if np.issubdtype(value.dtype, np.floating):
@@ -123,6 +140,7 @@ class Logger:
         B, T, H, W, C = value.shape
         value = value.transpose(1, 4, 2, 0, 3).reshape((1, T, C, H, B * W))
         self._writer.add_video(name, value, step, 16)
+        wandb.log({name: wandb.Video(value, fps=16, format="mp4")}, step=step)
 
 # use agent.train() and train in pwm/algo/pwm.py
 def simulate(
